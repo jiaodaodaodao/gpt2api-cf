@@ -146,23 +146,73 @@ docker logs -f klein-worker
 | OpenAI 兼容 API | `http(s)://your-domain:17200/v1` |
 
 
-## ☁️ Cloudflare Workers 边缘部署
+## ☁️ Cloudflare Workers 原生部署（Ready for Production）
 
-本仓库新增 `cloudflare/` Worker 部署入口，参考 `TQZHR/grok2api` 的 Wrangler + GitHub Actions 一键部署流程，为 gpt2api 提供 Cloudflare 统一入口。
+`cloudflare/` 目录现在提供完整的 **Cloudflare Workers 原生版**，不再只是边缘反代。它使用 Hono + TypeScript 在 Worker 内承载 OpenAI 兼容 API、用户/管理 API、API Key、账号池轮换、积分扣费和调用记录；使用 D1 保存业务数据，KV 保存健康状态/限流短缓存，R2 保存生成的大图和视频。
 
-由于 gpt2api 后端依赖 Go / MySQL / Redis / 后台 worker，Cloudflare Workers 版本定位为 **边缘反向代理 / Front Door**：业务源站仍按 Docker Compose 或 K8s 运行，Worker 负责统一域名、TLS/WAF、CORS、健康检查与 `/api/*`、`/admin/api/*`、`/v1/*` 路由转发。
+推荐生产架构：
 
-快速使用：
+```text
+用户前台 / 管理后台 / OpenAI SDK
+        │
+        ▼
+Cloudflare Worker（Hono、JWT/API Key、限流、计费、账号池、OpenAI 兼容路由）
+  ├─ D1：用户、API Keys、账号池、积分、调用记录、生成任务 URL
+  ├─ KV：账号健康、熔断状态、短期限流计数、临时元数据
+  ├─ R2：生成图片、生成视频、大文件长期保存
+  └─ 可选 Docker：复杂 GPT/Grok 登录、浏览器保活、uTLS/代理兜底
+```
+
+快速部署：
 
 ```bash
 cd cloudflare
 npm install
+CF_INIT=1 npm run init:cf
 npm run typecheck
-npm run dry-run
+npm run db:migrate:remote
 npm run deploy
 ```
 
-也可以配置 GitHub Secrets 后直接使用 `.github/workflows/cloudflare-workers.yml` 自动部署，详见 [`cloudflare/README.md`](cloudflare/README.md)。
+如果需要把 Docker 版前端构建产物打进 Worker Assets：
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm build
+cd ../cloudflare
+npm run static:sync
+npm run deploy -- --env production
+```
+
+`static:sync` 会自动查找并复制：
+
+- 用户前台：`frontend/apps/user/dist`、`frontend/apps/user/build`、`frontend/build/user`、`frontend/build/apps/user`、`frontend/build`
+- 管理后台：`frontend/apps/admin/dist`、`frontend/apps/admin/build`、`frontend/build/admin`、`frontend/build/apps/admin`
+
+Worker Assets 已启用 SPA fallback；用户前台任意路径回退到 `index.html`，管理后台 `/admin/*` 回退到 `admin/index.html`，API 路径 `/api/*`、`/admin/api/*`、`/v1/*` 和 `/cf-media/*` 始终先进入 Worker。
+
+### 成功案例 / 推荐落地方式
+
+- **纯 Cloudflare 模式**：适合轻量团队、边缘统一入口、希望减少服务器维护的场景。账号池、Key、计费、日志全部在 D1，媒体在 R2。
+- **Cloudflare + Docker 混合模式**：适合大账号池或复杂登录场景。Docker 负责 GPT/Grok 浏览器登录、Cookie 保活、uTLS/代理兜底；Cloudflare 负责公网 API、WAF、R2 媒体和灰度流量。
+- **灰度迁移模式**：先部署 `cf-api.example.com`，导入少量账号验证 `/v1/chat/completions`、图片/视频 R2 落盘、`/api/tokens/import`，稳定后再将主域名切到 `[env.production]`。
+
+### 常见问题
+
+**Q：Workers 能完全替代 Docker 版吗？**
+A：常规 API、账号池、计费、D1/KV/R2 存储可以原生运行在 Workers 上；但 Cloudflare Workers 不能直接使用本地浏览器、uTLS、SOCKS/TCP CONNECT 代理，所以复杂真人验证和 Cookie 保活建议由 Docker 或浏览器先完成，再批量导入 Worker。
+
+**Q：图片/视频为什么必须放 R2？**
+A：KV/D1 不适合保存大图和视频。Cloudflare 版会把生成媒体写入 R2，并且只在 D1 保存 `result_url/r2_url`，避免触发 KV 大对象限制。
+
+**Q：如何批量导入 GPT/Grok Cookie？**
+A：管理员 JWT 调用 `POST /api/tokens/import`，支持多行 `tokens/cookies/text` 和结构化 OAuth/Cookie 数组；管理后台兼容路径是 `POST /admin/api/v1/accounts/import`。
+
+**Q：生产环境应该使用哪个 Wrangler 配置？**
+A：使用 `cloudflare/wrangler.toml` 的 `[env.production]`，替换 D1/KV/R2 ID 与域名后执行 `npx wrangler deploy --env production`。生产配置已包含 `placement = aws:us-east-1`、CPU limits、observability、R2 和 D1/KV 绑定。
+
+详细文档见 [`cloudflare/README.cloudflare.md`](cloudflare/README.cloudflare.md)。
 
 ## 🧩 OpenAI 兼容 API
 

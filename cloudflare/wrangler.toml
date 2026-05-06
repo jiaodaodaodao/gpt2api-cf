@@ -1,24 +1,126 @@
-name = "gpt2api-edge"
+name = "gpt2api-native"
 main = "src/index.ts"
 compatibility_date = "2026-05-06"
 compatibility_flags = ["nodejs_compat"]
+assets = { directory = "./static", binding = "ASSETS", not_found_handling = "single-page-application", run_worker_first = ["/api/*", "/admin/api/*", "/v1/*", "/cf-media/*"] }
+# 自定义域名二选一：
+# 1) Workers Custom Domains：取消下一行注释并替换域名。
+# routes = [{ pattern = "api.example.com", custom_domain = true }]
+# 2) Pages Advanced Mode：使用 static/_routes.json 控制静态资源与 Worker 路由。
 
-# 与 TQZHR/grok2api 的 Workers 部署方式一致，固定在美国区域以提升出站稳定性。
+# 可选：固定美区出站，适合 GPT/Grok Web 上游访问稳定性优化。
 [placement]
 region = "aws:us-east-1"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "gpt2api_d1"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "00000000000000000000000000000000"
+preview_id = "11111111111111111111111111111111"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "gpt2api-media"
+preview_bucket_name = "gpt2api-media-preview"
+
+[triggers]
+crons = ["17 3 * * *"]
+
+[limits]
+cpu_ms = 30000
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
-# 这些 URL 会被 GitHub Actions 从 Secrets 注入到 wrangler.ci.toml。
-# 本地手动部署时，请先复制/编辑为你的真实源站地址，必须包含 https://。
-USER_WEB_ORIGIN = "https://user.example.com"
-ADMIN_WEB_ORIGIN = "https://admin.example.com"
-USER_API_ORIGIN = "https://user.example.com"
-ADMIN_API_ORIGIN = "https://admin.example.com"
-OPENAI_API_ORIGIN = "https://api.example.com"
-
-# 可选：管理后台独立域名。配置后该 Host 的所有非 API 请求都会转发到 ADMIN_WEB_ORIGIN。
-ADMIN_HOST = "admin.example.com"
+APP_NAME = "gpt2api-cf"
 BUILD_SHA = "dev"
-
-# CORS：逗号分隔。"*" 表示允许任意来源；生产建议填写你的前台/后台域名。
 CORS_ALLOW_ORIGINS = "*"
+JWT_ISSUER = "gpt2api-cf"
+JWT_TTL_SECONDS = "604800"
+API_RATE_LIMIT_PER_MINUTE = "60"
+ADMIN_RATE_LIMIT_PER_MINUTE = "120"
+DEFAULT_USER_CREDITS = "100"
+CHAT_DEFAULT_COST = "1"
+IMAGE_DEFAULT_COST = "5"
+VIDEO_DEFAULT_COST = "20"
+CACHE_TTL_SECONDS = "86400"
+MAX_KV_CACHE_BYTES = "20000000"
+UPSTREAM_TIMEOUT_MS = "110000"
+UPSTREAM_RETRY_MAX = "2"
+GLOBAL_PROXY_URL = ""
+GPT_UPSTREAM_BASE = "https://chatgpt.com"
+GROK_UPSTREAM_BASE = "https://grok.com"
+R2_PUBLIC_BASE_URL = ""
+OPENAI_OAUTH_CLIENT_ID = ""
+OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
+# 上游应暴露与 Docker 版一致的 /v1/chat/completions、/v1/images/*、/v1/video/* 协议。
+UPSTREAM_OPENAI_COMPAT_PATH = "/v1"
+
+# 生产必须使用 wrangler secret put 覆盖，不要把真实密钥写入仓库。
+JWT_SECRET = "change-me-at-deploy-time"
+ENCRYPTION_KEY = "change-me-32-bytes-minimum-secret"
+
+[env.production]
+name = "gpt2api-native-production"
+# 生产自定义域名示例：替换后取消注释。
+# routes = [{ pattern = "api.example.com", custom_domain = true }]
+
+[env.production.placement]
+region = "aws:us-east-1"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "gpt2api_d1_prod"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "00000000000000000000000000000000"
+preview_id = "11111111111111111111111111111111"
+
+[[env.production.r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "gpt2api-media-prod"
+preview_bucket_name = "gpt2api-media-preview"
+
+[env.production.triggers]
+crons = ["17 3 * * *"]
+
+[env.production.limits]
+cpu_ms = 30000
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.production.vars]
+APP_NAME = "gpt2api-cf"
+BUILD_SHA = "production"
+CORS_ALLOW_ORIGINS = "https://app.example.com,https://admin.example.com"
+JWT_ISSUER = "gpt2api-cf"
+JWT_TTL_SECONDS = "604800"
+API_RATE_LIMIT_PER_MINUTE = "120"
+ADMIN_RATE_LIMIT_PER_MINUTE = "120"
+DEFAULT_USER_CREDITS = "100"
+CHAT_DEFAULT_COST = "1"
+IMAGE_DEFAULT_COST = "5"
+VIDEO_DEFAULT_COST = "20"
+CACHE_TTL_SECONDS = "86400"
+MAX_KV_CACHE_BYTES = "1048576"
+UPSTREAM_TIMEOUT_MS = "110000"
+UPSTREAM_RETRY_MAX = "2"
+GLOBAL_PROXY_URL = ""
+GPT_UPSTREAM_BASE = "https://chatgpt.com"
+GROK_UPSTREAM_BASE = "https://grok.com"
+R2_PUBLIC_BASE_URL = ""
+OPENAI_OAUTH_CLIENT_ID = ""
+OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
+UPSTREAM_OPENAI_COMPAT_PATH = "/v1"
