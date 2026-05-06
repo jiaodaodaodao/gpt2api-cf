@@ -5,8 +5,8 @@ import { resolve } from 'node:path';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const cfStatic = resolve(root, 'cloudflare/static');
-const userCandidates = [resolve(root, 'frontend/apps/user/dist'), resolve(root, 'frontend/apps/user/build'), resolve(root, 'frontend/build/user'), resolve(root, 'frontend/build/apps/user'), resolve(root, 'frontend/build')];
-const adminCandidates = [resolve(root, 'frontend/apps/admin/dist'), resolve(root, 'frontend/apps/admin/build'), resolve(root, 'frontend/build/admin'), resolve(root, 'frontend/build/apps/admin')];
+const userCandidates = [resolve(root, 'frontend/apps/user/dist'), resolve(root, 'frontend/apps/user/build'), resolve(root, 'frontend/build/user'), resolve(root, 'frontend/build')];
+const adminCandidates = [resolve(root, 'frontend/apps/admin/dist'), resolve(root, 'frontend/apps/admin/build'), resolve(root, 'frontend/build/admin')];
 
 async function firstExisting(paths) {
   for (const p of paths) {
