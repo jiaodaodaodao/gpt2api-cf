@@ -1,15 +1,22 @@
 {
-  "name": "gpt2api-cloudflare-edge",
-  "version": "0.1.0",
+  "name": "gpt2api-cloudflare-native",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --config wrangler.toml",
+    "dev": "wrangler dev --config wrangler.toml --local",
     "deploy": "wrangler deploy --config wrangler.toml",
     "dry-run": "wrangler deploy --dry-run --config wrangler.toml",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply gpt2api_d1 --local --config wrangler.toml",
+    "db:migrate:remote": "wrangler d1 migrations apply gpt2api_d1 --remote --config wrangler.toml",
+    "init:cf": "node scripts/init-cloudflare.mjs"
+  },
+  "dependencies": {
+    "hono": "^4.7.10"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250507.0",
     "typescript": "^5.8.3",
     "wrangler": "^4.14.4"
   }
