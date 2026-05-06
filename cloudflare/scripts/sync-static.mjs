@@ -5,8 +5,8 @@ import { resolve } from 'node:path';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const cfStatic = resolve(root, 'cloudflare/static');
-const userCandidates = [resolve(root, 'frontend/apps/user/dist'), resolve(root, 'frontend/apps/user/build'), resolve(root, 'frontend/build/user'), resolve(root, 'frontend/build/apps/user'), resolve(root, 'frontend/build')];
-const adminCandidates = [resolve(root, 'frontend/apps/admin/dist'), resolve(root, 'frontend/apps/admin/build'), resolve(root, 'frontend/build/admin'), resolve(root, 'frontend/build/apps/admin')];
+const userCandidates = [resolve(root, 'frontend/apps/user/dist'), resolve(root, 'frontend/apps/user/build'), resolve(root, 'frontend/build/user'), resolve(root, 'frontend/build')];
+const adminCandidates = [resolve(root, 'frontend/apps/admin/dist'), resolve(root, 'frontend/apps/admin/build'), resolve(root, 'frontend/build/admin')];
 
 async function firstExisting(paths) {
   for (const p of paths) {
@@ -39,5 +39,4 @@ if (!copiedAdmin) {
   await writeFile(resolve(cfStatic, 'admin/index.html'), '<!doctype html><meta charset="utf-8"><title>gpt2api-cf admin</title><div id="root">Build admin frontend first: cd frontend && pnpm build</div>');
 }
 await writeFile(routes, JSON.stringify({ version: 1, include: ['/*'], exclude: ['/assets/*', '/admin/assets/*', '/favicon.ico', '/logo*.png'] }, null, 2) + '\n');
-await writeFile(resolve(cfStatic, '_redirects'), ['/admin/* /admin/index.html 200', '/* /index.html 200', ''].join('\n'));
 if (!existsSync(routes)) throw new Error('failed to write _routes.json');

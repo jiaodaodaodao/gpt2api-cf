@@ -5,13 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --config wrangler.toml --local",
-    "deploy": "npm run static:sync && wrangler deploy --config wrangler.toml",
-    "dry-run": "npm run static:sync && wrangler deploy --dry-run --config wrangler.toml",
+    "deploy": "wrangler deploy --config wrangler.toml",
+    "dry-run": "wrangler deploy --dry-run --config wrangler.toml",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply gpt2api_d1 --local --config wrangler.toml",
     "db:migrate:remote": "wrangler d1 migrations apply gpt2api_d1 --remote --config wrangler.toml",
-    "init:cf": "node scripts/init-cloudflare.mjs",
-    "static:sync": "node scripts/sync-static.mjs"
+    "init:cf": "node scripts/init-cloudflare.mjs"
   },
   "dependencies": {
     "hono": "^4.7.10"
