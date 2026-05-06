@@ -1,24 +1,46 @@
-name = "gpt2api-edge"
+name = "gpt2api-native"
 main = "src/index.ts"
 compatibility_date = "2026-05-06"
 compatibility_flags = ["nodejs_compat"]
+assets = { directory = "./static", binding = "ASSETS", not_found_handling = "single-page-application" }
 
-# 与 TQZHR/grok2api 的 Workers 部署方式一致，固定在美国区域以提升出站稳定性。
+# 可选：固定美区出站，适合 GPT/Grok Web 上游访问稳定性优化。
 [placement]
 region = "aws:us-east-1"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "gpt2api_d1"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "00000000000000000000000000000000"
+preview_id = "11111111111111111111111111111111"
+
+[triggers]
+crons = ["17 3 * * *"]
+
 [vars]
-# 这些 URL 会被 GitHub Actions 从 Secrets 注入到 wrangler.ci.toml。
-# 本地手动部署时，请先复制/编辑为你的真实源站地址，必须包含 https://。
-USER_WEB_ORIGIN = "https://user.example.com"
-ADMIN_WEB_ORIGIN = "https://admin.example.com"
-USER_API_ORIGIN = "https://user.example.com"
-ADMIN_API_ORIGIN = "https://admin.example.com"
-OPENAI_API_ORIGIN = "https://api.example.com"
-
-# 可选：管理后台独立域名。配置后该 Host 的所有非 API 请求都会转发到 ADMIN_WEB_ORIGIN。
-ADMIN_HOST = "admin.example.com"
+APP_NAME = "gpt2api-cf"
 BUILD_SHA = "dev"
-
-# CORS：逗号分隔。"*" 表示允许任意来源；生产建议填写你的前台/后台域名。
 CORS_ALLOW_ORIGINS = "*"
+JWT_ISSUER = "gpt2api-cf"
+JWT_TTL_SECONDS = "604800"
+API_RATE_LIMIT_PER_MINUTE = "60"
+ADMIN_RATE_LIMIT_PER_MINUTE = "120"
+DEFAULT_USER_CREDITS = "100"
+CHAT_DEFAULT_COST = "1"
+IMAGE_DEFAULT_COST = "5"
+VIDEO_DEFAULT_COST = "20"
+CACHE_TTL_SECONDS = "86400"
+MAX_KV_CACHE_BYTES = "20000000"
+UPSTREAM_TIMEOUT_MS = "110000"
+GLOBAL_PROXY_URL = ""
+GPT_UPSTREAM_BASE = "https://chatgpt.com"
+GROK_UPSTREAM_BASE = "https://grok.com"
+
+# 生产必须使用 wrangler secret put 覆盖，不要把真实密钥写入仓库。
+JWT_SECRET = "change-me-at-deploy-time"
+ENCRYPTION_KEY = "change-me-32-bytes-minimum-secret"
