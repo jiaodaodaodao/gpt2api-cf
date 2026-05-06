@@ -33,7 +33,6 @@ jobs:
         run: npm run typecheck
 
       - name: Generate CI Wrangler config
-        run: npm run render-config -- --output wrangler.ci.toml
         env:
           CF_USER_WEB_ORIGIN: ${{ secrets.CF_USER_WEB_ORIGIN }}
           CF_ADMIN_WEB_ORIGIN: ${{ secrets.CF_ADMIN_WEB_ORIGIN }}
@@ -43,6 +42,42 @@ jobs:
           CF_ADMIN_HOST: ${{ secrets.CF_ADMIN_HOST }}
           CF_CORS_ALLOW_ORIGINS: ${{ secrets.CF_CORS_ALLOW_ORIGINS }}
           GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          required = {
+              "USER_WEB_ORIGIN": os.environ.get("CF_USER_WEB_ORIGIN", ""),
+              "ADMIN_WEB_ORIGIN": os.environ.get("CF_ADMIN_WEB_ORIGIN", ""),
+              "USER_API_ORIGIN": os.environ.get("CF_USER_API_ORIGIN", ""),
+              "ADMIN_API_ORIGIN": os.environ.get("CF_ADMIN_API_ORIGIN", ""),
+              "OPENAI_API_ORIGIN": os.environ.get("CF_OPENAI_API_ORIGIN", ""),
+          }
+          missing = [name for name, value in required.items() if not value]
+          if missing:
+              raise SystemExit(f"Missing required origin secrets: {', '.join(missing)}")
+
+          values = {
+              **required,
+              "ADMIN_HOST": os.environ.get("CF_ADMIN_HOST", ""),
+              "CORS_ALLOW_ORIGINS": os.environ.get("CF_CORS_ALLOW_ORIGINS", "*") or "*",
+              "BUILD_SHA": os.environ.get("GITHUB_SHA", "dev") or "dev",
+          }
+
+          text = Path("wrangler.toml").read_text(encoding="utf-8")
+          for key, value in values.items():
+              escaped = value.replace('\\', '\\\\').replace('"', '\\"')
+              pattern = rf'(?m)^{key}\s*=\s*"[^"]*"\s*$'
+              replacement = f'{key} = "{escaped}"'
+              text, count = re.subn(pattern, replacement, text)
+              if count == 0:
+                  raise SystemExit(f"wrangler.toml missing var: {key}")
+
+          Path("wrangler.ci.toml").write_text(text, encoding="utf-8")
+          print("Generated wrangler.ci.toml")
+          PY
 
       - name: Dry-run Worker deploy
         run: npx wrangler deploy --dry-run --config wrangler.ci.toml

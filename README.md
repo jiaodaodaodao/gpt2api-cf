@@ -156,14 +156,13 @@ docker logs -f klein-worker
 
 ```bash
 cd cloudflare
-cp .env.example .env.local   # 填入 Cloudflare API Token、Account ID 和你的源站域名
 npm install
 npm run typecheck
 npm run dry-run
 npm run deploy
 ```
 
-也可以配置 GitHub Secrets 后直接使用 `.github/workflows/cloudflare-workers.yml` 自动部署，详见 [`cloudflare/README.md`](cloudflare/README.md)。请不要把 Cloudflare 账号密码或长期密钥发给任何人；需要协助时只使用可随时删除的最小权限 API Token。
+也可以配置 GitHub Secrets 后直接使用 `.github/workflows/cloudflare-workers.yml` 自动部署，详见 [`cloudflare/README.md`](cloudflare/README.md)。
 
 ## 🧩 OpenAI 兼容 API
 
@@ -311,11 +310,6 @@ pnpm --filter @kleinai/admin dev    # http://localhost:5174
 
 如果这个项目对你有帮助，欢迎点一个 ⭐ 支持持续更新。
 
-## 💬 社区与交流
-
-- GitHub Issues：[https://github.com/432539/gpt2api/issues](https://github.com/432539/gpt2api/issues)
-- 技术交流 QQ 群：`382446`
-- 官网：[www.gpt2api.com](https://www.gpt2api.com/)
 
 ## 📜 开源协议
 
