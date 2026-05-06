@@ -3,10 +3,6 @@ main = "src/index.ts"
 compatibility_date = "2026-05-06"
 compatibility_flags = ["nodejs_compat"]
 assets = { directory = "./static", binding = "ASSETS", not_found_handling = "single-page-application" }
-# 自定义域名二选一：
-# 1) Workers Custom Domains：取消下一行注释并替换域名。
-# routes = [{ pattern = "api.example.com", custom_domain = true }]
-# 2) Pages Advanced Mode：使用 static/_routes.json 控制静态资源与 Worker 路由。
 
 # 可选：固定美区出站，适合 GPT/Grok Web 上游访问稳定性优化。
 [placement]
@@ -22,11 +18,6 @@ migrations_dir = "migrations"
 binding = "CACHE"
 id = "00000000000000000000000000000000"
 preview_id = "11111111111111111111111111111111"
-
-[[r2_buckets]]
-binding = "MEDIA_BUCKET"
-bucket_name = "gpt2api-media"
-preview_bucket_name = "gpt2api-media-preview"
 
 [triggers]
 crons = ["17 3 * * *"]
@@ -49,11 +40,6 @@ UPSTREAM_TIMEOUT_MS = "110000"
 GLOBAL_PROXY_URL = ""
 GPT_UPSTREAM_BASE = "https://chatgpt.com"
 GROK_UPSTREAM_BASE = "https://grok.com"
-R2_PUBLIC_BASE_URL = ""
-OPENAI_OAUTH_CLIENT_ID = ""
-OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
-# 上游应暴露与 Docker 版一致的 /v1/chat/completions、/v1/images/*、/v1/video/* 协议。
-UPSTREAM_OPENAI_COMPAT_PATH = "/v1"
 
 # 生产必须使用 wrangler secret put 覆盖，不要把真实密钥写入仓库。
 JWT_SECRET = "change-me-at-deploy-time"

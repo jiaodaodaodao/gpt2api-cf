@@ -21,7 +21,4 @@ const kvOut = run(['kv', 'namespace', 'create', 'CACHE'], true);
 const kvId = kvOut.match(/id\s*=\s*"([^"]+)"/)?.[1] || kvOut.match(/([0-9a-f]{32})/)?.[1];
 if (kvId) { patchToml('kv', kvId); console.log(`KV id=${kvId}`); } else console.log('KV may already exist; keep current id or patch it manually.');
 
-const r2Out = run(['r2', 'bucket', 'create', 'gpt2api-media'], true);
-console.log(r2Out.trim() || 'R2 bucket may already exist; keep bucket_name=gpt2api-media or patch wrangler.toml manually.');
-
 console.log('Next: npx wrangler d1 migrations apply gpt2api_d1 --remote && npx wrangler secret put JWT_SECRET && npx wrangler secret put ENCRYPTION_KEY');

@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono';
 import type { Env, JwtPayload } from '../types';
-import { jsonErr, getNum, openAiError } from '../lib/http';
+import { jsonErr, getNum } from '../lib/http';
 import { sha256Hex, signJwt, verifyJwt } from '../lib/crypto';
 import { getApiKey, getUserById } from './db';
 
@@ -22,48 +22,25 @@ export async function issueToken(env: Env, userId: string, role: 'user' | 'admin
 }
 export async function authUser(c: Context<{ Bindings: Env; Variables: any }>, next: Next) {
   const user = await userFromBearer(c);
-  if (!user) return jsonErr('未登录', 401, 'unauthorized');
+  if (!user) return jsonErr('invalid token', 401, 'unauthorized');
   c.set('user', user);
   await next();
 }
 export async function authAdmin(c: Context<{ Bindings: Env; Variables: any }>, next: Next) {
   const user = await userFromBearer(c);
-  if (!user) return jsonErr('未登录', 401, 'unauthorized');
-  if (user.role !== 'admin') return jsonErr('权限不足', 403, 'forbidden');
+  if (!user) return jsonErr('invalid token', 401, 'unauthorized');
+  if (user.role !== 'admin') return jsonErr('admin required', 403, 'forbidden');
   c.set('user', user);
   await next();
-}
-export function apiKeyAllows(scopeText = '', required: 'chat' | 'image' | 'video') {
-  const scopes = scopeText.split(',').map((s) => s.trim()).filter(Boolean);
-  return scopes.includes('*') || scopes.includes(required) || (required === 'image' && scopes.includes('images'));
-}
-async function enforceApiKeyQuota(c: Context<{ Bindings: Env; Variables: any }>, keyId: string, rpmLimit = 0, dailyQuota = 0) {
-  const minute = Math.floor(Date.now() / 60000);
-  if (rpmLimit > 0) {
-    const mk = `apikey_rpm:${keyId}:${minute}`;
-    const v = Number((await c.env.CACHE.get(mk)) || '0') + 1;
-    await c.env.CACHE.put(mk, String(v), { expirationTtl: 90 });
-    if (v > rpmLimit) return openAiError('rate limit exceeded', 429, 'rate_limit_exceeded');
-  }
-  if (dailyQuota > 0) {
-    const day = new Date().toISOString().slice(0, 10);
-    const dk = `apikey_daily:${keyId}:${day}`;
-    const v = Number((await c.env.CACHE.get(dk)) || '0') + 1;
-    await c.env.CACHE.put(dk, String(v), { expirationTtl: 93600 });
-    if (v > dailyQuota) return openAiError('daily quota exceeded', 429, 'quota_exceeded');
-  }
-  return null;
 }
 export async function authApiKey(c: Context<{ Bindings: Env; Variables: any }>, next: Next) {
   const header = c.req.header('Authorization') || '';
   const raw = header.startsWith('Bearer ') ? header.slice(7) : c.req.header('X-API-Key') || '';
-  if (!raw) return openAiError('api key required', 401, 'invalid_api_key');
+  if (!raw) return Response.json({ error: { message: 'missing API key', type: 'invalid_request_error' } }, { status: 401 });
   const apiKey = await getApiKey(c.env, raw);
-  if (!apiKey) return openAiError('API Key 无效', 401, 'invalid_api_key');
-  const quota = await enforceApiKeyQuota(c, apiKey.id, Number(apiKey.rpm_limit || 0), Number(apiKey.daily_quota || 0));
-  if (quota) return quota;
+  if (!apiKey) return Response.json({ error: { message: 'invalid API key', type: 'invalid_request_error' } }, { status: 401 });
   const user = await getUserById(c.env, apiKey.user_id);
-  if (!user || user.status !== 'active') return openAiError('user disabled', 403, 'invalid_request_error');
+  if (!user || user.status !== 'active') return Response.json({ error: { message: 'user disabled', type: 'invalid_request_error' } }, { status: 403 });
   c.set('apiKey', apiKey);
   c.set('user', user);
   await next();

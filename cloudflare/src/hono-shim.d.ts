@@ -17,7 +17,6 @@ declare module 'hono' {
     post(path: string, ...handlers: Handler[]): this;
     patch(path: string, ...handlers: Handler[]): this;
     put(path: string, ...handlers: Handler[]): this;
-    delete(path: string, ...handlers: Handler[]): this;
     route(path: string, app: Hono<any>): this;
     notFound(handler: Handler): this;
     onError(handler: (err: Error, c: Context<any>) => Response | Promise<Response>): this;
@@ -29,8 +28,6 @@ type D1Result<T = unknown> = { results: T[]; success: boolean; meta: { changes?:
 interface D1PreparedStatement { bind(...values: any[]): D1PreparedStatement; first<T = unknown>(): Promise<T | null>; all<T = unknown>(): Promise<D1Result<T>>; run(): Promise<D1Result>; }
 interface D1Database { prepare(query: string): D1PreparedStatement; batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>; }
 interface KVNamespace { get(key: string): Promise<string | null>; put(key: string, value: string | ArrayBuffer, options?: { expirationTtl?: number; metadata?: Record<string, unknown> }): Promise<void>; }
-interface R2ObjectBody { body: ReadableStream; httpMetadata?: { contentType?: string }; writeHttpMetadata(headers: Headers): void; }
-interface R2Bucket { get(key: string): Promise<R2ObjectBody | null>; put(key: string, value: ArrayBuffer | ReadableStream, options?: { httpMetadata?: Record<string, string>; customMetadata?: Record<string, string> }): Promise<unknown>; }
 interface Fetcher { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>; }
 interface ScheduledEvent {}
 interface ExecutionContext { waitUntil(promise: Promise<any>): void; passThroughOnException(): void; }

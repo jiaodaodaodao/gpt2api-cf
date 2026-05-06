@@ -1,232 +1,43 @@
-import type { AccountRecord, Env, Provider } from '../types';
-import { decryptText, encryptText, sha256Hex } from '../lib/crypto';
+import type { Env, Provider } from '../types';
+import { decryptText, sha256Hex } from '../lib/crypto';
 import { getNum } from '../lib/http';
-import { markAccountResult, nowIso, recordAccountHealth, selectHealthyAccount } from './db';
+import { markAccountResult, selectHealthyAccount } from './db';
 
 export function providerForModel(model = ''): Provider {
-  return /grok|vid|video/i.test(model) ? 'grok' : 'gpt';
+  return /grok/i.test(model) ? 'grok' : 'gpt';
 }
-function upstreamBase(env: Env, provider: Provider, account?: AccountRecord) {
-  const raw = account?.upstream_base_url || (provider === 'grok' ? env.GROK_UPSTREAM_BASE : env.GPT_UPSTREAM_BASE) || 'https://api.openai.com';
-  return raw.replace(/\/$/, '');
-}
-function upstreamPath(env: Env, path: string) {
-  const prefix = (env.UPSTREAM_OPENAI_COMPAT_PATH || '/v1').replace(/\/$/, '');
-  const normalized = path.endsWith('/videos/generations') ? '/video/generations' : path.replace(/^\/v1/, '');
-  return `${prefix}${normalized.startsWith('/') ? normalized : `/${normalized}`}`;
+function upstreamBase(env: Env, provider: Provider) {
+  return provider === 'grok' ? env.GROK_UPSTREAM_BASE || 'https://grok.com' : env.GPT_UPSTREAM_BASE || 'https://chatgpt.com';
 }
 async function boundedFetch(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort('upstream timeout'), timeoutMs);
   try { return await fetch(input, { ...init, signal: ac.signal }); } finally { clearTimeout(t); }
 }
-function readSetCookies(headers: Headers) {
-  const anyHeaders = headers as Headers & { getSetCookie?: () => string[] };
-  const multi = anyHeaders.getSetCookie?.() || [];
-  const single = headers.get('set-cookie');
-  return single ? [...multi, single] : multi;
-}
-function cookiePair(setCookie: string) {
-  return setCookie.split(';', 1)[0]?.trim() || '';
-}
-function mergeCookies(current: string, setCookies: string[]) {
-  const jar = new Map<string, string>();
-  const add = (pair: string) => {
-    const idx = pair.indexOf('=');
-    if (idx <= 0) return;
-    jar.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
-  };
-  current.split(';').map((p) => p.trim()).filter(Boolean).forEach(add);
-  setCookies.map(cookiePair).filter(Boolean).forEach(add);
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
-}
-function buildGrokCookie(credential: string) {
-  const cred = credential.trim();
-  if (!cred) return '';
-  if (cred.includes('=')) {
-    if (cred.includes('sso=') && !cred.includes('sso-rw=')) {
-      const token = cred.split(';').map((p) => p.trim()).find((p) => p.startsWith('sso='))?.slice(4);
-      return token ? `${cred.replace(/[;\s]+$/, '')}; sso-rw=${token}` : cred;
-    }
-    return cred;
-  }
-  return `sso=${cred}; sso-rw=${cred}`;
-}
-function commonBrowserHeaders(base: string) {
-  return {
-    'Accept': '*/*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Cache-Control': 'no-cache',
-    'Origin': base,
-    'Pragma': 'no-cache',
-    'Referer': `${base}/`,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-  };
-}
-async function saveAccountSecret(env: Env, accountId: string, field: 'cookie_encrypted' | 'access_token_encrypted' | 'refresh_token_encrypted', plain: string) {
-  await env.DB.prepare(`update accounts set ${field}=?, updated_at=? where id=?`).bind(await encryptText(plain, env.ENCRYPTION_KEY), nowIso(), accountId).run();
-}
-function jwtExpMs(token: string) {
-  const part = token.split('.')[1];
-  if (!part) return 0;
-  try {
-    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (part.length % 4)) % 4);
-    const json = JSON.parse(atob(padded));
-    return Number(json.exp || 0) * 1000;
-  } catch { return 0; }
-}
-function tokenNeedsRefresh(account: AccountRecord, token: string) {
-  const explicit = account.access_token_expires_at ? Date.parse(account.access_token_expires_at) : 0;
-  const exp = explicit || jwtExpMs(token);
-  return !token || !exp || exp < Date.now() + 10 * 60_000;
-}
-async function refreshGptOAuthToken(env: Env, account: AccountRecord, refreshToken: string) {
-  const clientId = account.oauth_meta ? (JSON.parse(account.oauth_meta).client_id || env.OPENAI_OAUTH_CLIENT_ID || '') : (env.OPENAI_OAUTH_CLIENT_ID || '');
-  if (!clientId) throw new Error('GPT OAuth refresh requires client_id or OPENAI_OAUTH_CLIENT_ID');
-  const form = new URLSearchParams();
-  form.set('grant_type', 'refresh_token');
-  form.set('refresh_token', refreshToken);
-  form.set('client_id', clientId);
-  form.set('scope', 'openid profile email');
-  const tokenUrl = env.OPENAI_OAUTH_TOKEN_URL || 'https://auth.openai.com/oauth/token';
-  const res = await boundedFetch(tokenUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'User-Agent': 'codex-cli/0.91.0' }, body: form }, 30000);
-  const text = await res.text();
-  if (!res.ok) throw new Error(`GPT OAuth refresh failed: ${res.status} ${text.slice(0, 200)}`);
-  const data = JSON.parse(text) as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; id_token?: string };
-  if (!data.access_token) throw new Error('GPT OAuth refresh response missing access_token');
-  const expiresAt = new Date(Date.now() + Number(data.expires_in || 3600) * 1000).toISOString();
-  await env.DB.prepare('update accounts set access_token_encrypted=?, refresh_token_encrypted=coalesce(?,refresh_token_encrypted), access_token_expires_at=?, last_refresh_at=?, oauth_meta=?, updated_at=? where id=?')
-    .bind(await encryptText(data.access_token, env.ENCRYPTION_KEY), data.refresh_token ? await encryptText(data.refresh_token, env.ENCRYPTION_KEY) : null, expiresAt, nowIso(), JSON.stringify({ ...(account.oauth_meta ? JSON.parse(account.oauth_meta) : {}), client_id: clientId, scope: data.scope || '', id_token_present: !!data.id_token, updated: Math.floor(Date.now() / 1000) }), nowIso(), account.id).run();
-  return data.access_token;
-}
-async function bootstrapProviderSession(env: Env, account: AccountRecord, provider: Provider, cookie: string) {
-  const base = upstreamBase(env, provider, account);
-  const headers = new Headers(commonBrowserHeaders(base));
-  headers.set('Cookie', provider === 'grok' ? buildGrokCookie(cookie) : cookie);
-  if (provider === 'grok') {
-    headers.set('Content-Type', 'application/json');
-    headers.set('X-Statsig-ID', 'YXV0aGVudGljYXRlZA==');
-    headers.set('X-XAI-Request-ID', crypto.randomUUID());
-    const res = await boundedFetch(`${base}/rest/rate-limits`, { method: 'POST', headers, body: JSON.stringify({ modelName: 'grok-3' }) }, 15000);
-    const merged = mergeCookies(headers.get('Cookie') || '', readSetCookies(res.headers));
-    if (merged && merged !== cookie) await saveAccountSecret(env, account.id, 'cookie_encrypted', merged);
-    if (res.status === 401 || res.status === 403) throw new Error(`Grok cookie login failed: ${res.status}`);
-    return { cookie: merged || cookie, token: '' };
-  }
-  const res = await boundedFetch(`${base}/`, { method: 'GET', headers }, 15000);
-  const merged = mergeCookies(cookie, readSetCookies(res.headers));
-  if (merged && merged !== cookie) await saveAccountSecret(env, account.id, 'cookie_encrypted', merged);
-  return { cookie: merged || cookie, token: '' };
-}
-async function prepareAccountAuth(env: Env, account: AccountRecord, provider: Provider) {
-  let cookie = account.cookie_encrypted ? await decryptText(account.cookie_encrypted, env.ENCRYPTION_KEY) : '';
-  let token = account.access_token_encrypted ? await decryptText(account.access_token_encrypted, env.ENCRYPTION_KEY) : '';
-  const refreshToken = account.refresh_token_encrypted ? await decryptText(account.refresh_token_encrypted, env.ENCRYPTION_KEY) : '';
-  if (provider === 'gpt' && refreshToken && tokenNeedsRefresh(account, token)) token = await refreshGptOAuthToken(env, account, refreshToken);
-  if (cookie || provider === 'grok') {
-    const session = await bootstrapProviderSession(env, account, provider, cookie || token);
-    cookie = session.cookie || cookie;
-  }
-  return { cookie, token };
-}
-function cloneHeaders(request: Request, cookie: string, token: string, proxyUrl: string) {
-  const headers = new Headers(request.headers);
-  headers.delete('host');
-  headers.delete('content-length');
-  headers.set('cookie', cookie);
-  if (token) headers.set('authorization', `Bearer ${token}`);
-  if (proxyUrl) headers.set('x-gpt2api-proxy', proxyUrl);
-  headers.set('x-gpt2api-worker', 'cloudflare-native');
-  return headers;
-}
 
-export async function forwardOpenAIRequest(env: Env, request: Request, provider: Provider) {
+export async function callModel(env: Env, provider: Provider, body: any, path: 'chat' | 'images' | 'video') {
   const account = await selectHealthyAccount(env, provider);
   if (!account) throw new Error(`no healthy ${provider} account available`);
-  const { cookie, token } = await prepareAccountAuth(env, account, provider);
-  const incoming = new URL(request.url);
-  const target = new URL(`${upstreamBase(env, provider, account)}${upstreamPath(env, incoming.pathname)}${incoming.search}`);
-  const started = Date.now();
-  try {
-    const proxyUrl = account.proxy_url || env.GLOBAL_PROXY_URL || '';
-    const res = await boundedFetch(target, { method: request.method, headers: cloneHeaders(request, cookie, token, proxyUrl), body: request.body, redirect: 'manual' }, getNum(env.UPSTREAM_TIMEOUT_MS, 110000));
-    await markAccountResult(env, account.id, res.ok);
-    return { response: res, accountId: account.id, provider, latencyMs: Date.now() - started };
-  } catch (e) {
-    await markAccountResult(env, account.id, false, e instanceof Error ? e.message : String(e));
-    throw e;
+  const cookie = await decryptText(account.cookie_encrypted, env.ENCRYPTION_KEY);
+  const token = account.access_token_encrypted ? await decryptText(account.access_token_encrypted, env.ENCRYPTION_KEY) : '';
+  const endpoint = new URL(`/cf-native/${path}`, upstreamBase(env, provider));
+  const headers = new Headers({ 'Content-Type': 'application/json', Cookie: cookie, 'User-Agent': 'gpt2api-cf-worker/1.0' });
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (account.proxy_url || env.GLOBAL_PROXY_URL) headers.set('X-GPT2API-Proxy', account.proxy_url || env.GLOBAL_PROXY_URL || '');
+
+  // Cloudflare Workers 不能直接创建 TCP CONNECT 代理；这里保留账号级/全局代理配置语义，供上游兼容网关识别。
+  // 若 GPT/Grok Web 协议变化导致直连失败，响应会回退为 OpenAI 兼容错误，并触发账号熔断。
+  const res = await boundedFetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) }, getNum(env.UPSTREAM_TIMEOUT_MS, 110000));
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    await markAccountResult(env, account.id, false, text || res.statusText);
+    throw new Error(`${provider} upstream failed: ${res.status} ${text.slice(0, 300)}`);
   }
+  await markAccountResult(env, account.id, true);
+  const data = await res.json().catch(() => null);
+  return { data, accountId: account.id, provider };
 }
 
-export async function healthCheckAccounts(env: Env) {
-  const rows = await env.DB.prepare("select * from accounts where status in ('active','cooldown') limit 50").all<AccountRecord>();
-  await Promise.all(rows.results.map(async (account) => {
-    try {
-      const cookie = account.cookie_encrypted ? await decryptText(account.cookie_encrypted, env.ENCRYPTION_KEY) : '';
-      await bootstrapProviderSession(env, account, account.provider, cookie);
-      await recordAccountHealth(env, account.id, 'healthy', 'cookie/session ok');
-    } catch (e) {
-      await recordAccountHealth(env, account.id, 'down', e instanceof Error ? e.message : String(e));
-    }
-  }));
-}
-
-function extensionForContentType(contentType: string, fallback: string) {
-  if (contentType.includes('png')) return 'png';
-  if (contentType.includes('webp')) return 'webp';
-  if (contentType.includes('jpeg') || contentType.includes('jpg')) return 'jpg';
-  if (contentType.includes('gif')) return 'gif';
-  if (contentType.includes('mp4')) return 'mp4';
-  if (contentType.includes('mpegurl')) return 'm3u8';
-  return fallback;
-}
-function publicR2Url(env: Env, key: string) {
-  const base = env.R2_PUBLIC_BASE_URL?.replace(/\/$/, '');
-  return base ? `${base}/${key}` : `/cf-media/${key}`;
-}
-async function putR2(env: Env, key: string, bytes: ArrayBuffer, contentType: string) {
-  if (!env.MEDIA_BUCKET) return '';
-  await env.MEDIA_BUCKET.put(key, bytes, { httpMetadata: { contentType }, customMetadata: { cached_at: nowIso() } });
-  return publicR2Url(env, key);
-}
-async function downloadAndStore(env: Env, kind: 'image' | 'video', url: string) {
-  const res = await boundedFetch(url, { method: 'GET' }, 60000);
-  if (!res.ok) return url;
-  const contentType = res.headers.get('content-type') || (kind === 'video' ? 'video/mp4' : 'image/png');
-  const bytes = await res.arrayBuffer();
-  const hash = await sha256Hex(`${url}:${bytes.byteLength}:${Date.now()}`);
-  const key = `${kind}/${hash}.${extensionForContentType(contentType, kind === 'video' ? 'mp4' : 'png')}`;
-  return await putR2(env, key, bytes, contentType) || url;
-}
-async function b64ToR2(env: Env, kind: 'image' | 'video', b64: string) {
-  const clean = b64.includes(',') ? b64.split(',').pop() || '' : b64;
-  const bin = atob(clean);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-  const hash = await sha256Hex(`${clean.slice(0, 256)}:${clean.length}`);
-  const contentType = kind === 'video' ? 'video/mp4' : 'image/png';
-  const key = `${kind}/${hash}.${kind === 'video' ? 'mp4' : 'png'}`;
-  return putR2(env, key, bytes.buffer, contentType);
-}
-export async function persistGenerationAssets(env: Env, kind: 'image' | 'video', payload: any) {
-  const cloned = JSON.parse(JSON.stringify(payload));
-  const saved: string[] = [];
-  const items = Array.isArray(cloned?.data) ? cloned.data : Array.isArray(cloned?.output) ? cloned.output : [];
-  for (const item of items) {
-    if (item?.url && /^https?:\/\//i.test(item.url)) {
-      const stored = await downloadAndStore(env, kind, item.url).catch(() => item.url);
-      if (stored !== item.url) { item.original_url = item.url; item.url = stored; saved.push(stored); }
-    } else if (item?.b64_json) {
-      const stored = await b64ToR2(env, kind, item.b64_json).catch(() => '');
-      if (stored) { item.url = stored; delete item.b64_json; saved.push(stored); }
-    }
-  }
-  const cacheKey = await cacheGeneration(env, kind, { payload: cloned, r2_urls: saved });
-  return { payload: cloned, cacheKey, r2Urls: saved };
-}
 export async function cacheGeneration(env: Env, kind: 'image' | 'video', payload: unknown, bytes?: ArrayBuffer) {
   const ttl = getNum(env.CACHE_TTL_SECONDS, 86400);
   const max = getNum(env.MAX_KV_CACHE_BYTES, 20_000_000);

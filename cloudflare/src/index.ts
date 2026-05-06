@@ -9,7 +9,6 @@ import { openaiRoutes } from './routes/openai';
 import { adminRoutes } from './routes/admin';
 import { userRoutes } from './routes/user';
 import { nowIso } from './services/db';
-import { healthCheckAccounts } from './services/upstream';
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -23,17 +22,6 @@ app.use('/admin/api/*', rateLimit('admin'));
 
 app.get('/health', (c) => c.json({ ok: true, service: c.env.APP_NAME || 'gpt2api-cf', native: true, build_sha: c.env.BUILD_SHA || 'dev' }));
 app.get('/healthz', (c) => c.json({ ok: true }));
-app.get('/cf-media/*', async (c) => {
-  if (!c.env.MEDIA_BUCKET) return jsonErr('R2 bucket is not configured', 404, 'not_found');
-  const key = c.req.path.replace(/^\/cf-media\//, '');
-  const object = await c.env.MEDIA_BUCKET.get(key);
-  if (!object) return jsonErr('media not found', 404, 'not_found');
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-  return new Response(object.body, { headers });
-});
-app.route('/api/v1', authRoutes);
 app.route('/api', authRoutes);
 app.route('/', userRoutes);
 app.route('/', adminRoutes);
@@ -41,13 +29,6 @@ app.route('/', openaiRoutes);
 
 app.notFound(async (c) => {
   if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/admin/api/') || c.req.path.startsWith('/v1/')) return jsonErr('not found', 404, 'not_found');
-  if (c.req.path === '/admin' || c.req.path.startsWith('/admin/')) {
-    const url = new URL(c.req.raw.url);
-    if (!url.pathname.includes('.')) {
-      url.pathname = '/admin/index.html';
-      return c.env.ASSETS.fetch(new Request(url, c.req.raw));
-    }
-  }
   return c.env.ASSETS.fetch(c.req.raw);
 });
 app.onError((err, c) => {
@@ -58,11 +39,9 @@ app.onError((err, c) => {
 
 async function scheduled(env: Env) {
   const cutoff = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
-  await healthCheckAccounts(env);
   await env.DB.batch([
     env.DB.prepare('update accounts set status="active", circuit_until=null, updated_at=? where status="cooldown" and circuit_until < ?').bind(nowIso(), nowIso()),
     env.DB.prepare('delete from request_logs where created_at < ?').bind(cutoff),
-    env.DB.prepare('delete from api_call_records where created_at < ?').bind(cutoff),
     env.DB.prepare('delete from billing_records where created_at < ? and kind="debug"').bind(cutoff),
   ]);
   await env.CACHE.put('cron:last_health_check', nowIso(), { expirationTtl: 172800 });
