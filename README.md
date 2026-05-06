@@ -310,11 +310,6 @@ pnpm --filter @kleinai/admin dev    # http://localhost:5174
 
 如果这个项目对你有帮助，欢迎点一个 ⭐ 支持持续更新。
 
-## 💬 社区与交流
-
-- GitHub Issues：[https://github.com/432539/gpt2api/issues](https://github.com/432539/gpt2api/issues)
-- 技术交流 QQ 群：`382446`
-- 官网：[www.gpt2api.com](https://www.gpt2api.com/)
 
 ## 📜 开源协议
 
