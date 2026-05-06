@@ -17,7 +17,6 @@ declare module 'hono' {
     post(path: string, ...handlers: Handler[]): this;
     patch(path: string, ...handlers: Handler[]): this;
     put(path: string, ...handlers: Handler[]): this;
-    delete(path: string, ...handlers: Handler[]): this;
     route(path: string, app: Hono<any>): this;
     notFound(handler: Handler): this;
     onError(handler: (err: Error, c: Context<any>) => Response | Promise<Response>): this;

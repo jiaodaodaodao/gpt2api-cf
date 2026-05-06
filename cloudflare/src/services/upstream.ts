@@ -1,66 +1,41 @@
-import type { AccountRecord, Env, Provider } from '../types';
+import type { Env, Provider } from '../types';
 import { decryptText, sha256Hex } from '../lib/crypto';
 import { getNum } from '../lib/http';
-import { markAccountResult, recordAccountHealth, selectHealthyAccount } from './db';
+import { markAccountResult, selectHealthyAccount } from './db';
 
 export function providerForModel(model = ''): Provider {
-  return /grok|vid|video/i.test(model) ? 'grok' : 'gpt';
+  return /grok/i.test(model) ? 'grok' : 'gpt';
 }
-function upstreamBase(env: Env, provider: Provider, account?: AccountRecord) {
-  const raw = account?.upstream_base_url || (provider === 'grok' ? env.GROK_UPSTREAM_BASE : env.GPT_UPSTREAM_BASE) || 'https://api.openai.com';
-  return raw.replace(/\/$/, '');
-}
-function upstreamPath(env: Env, path: string) {
-  const prefix = (env.UPSTREAM_OPENAI_COMPAT_PATH || '/v1').replace(/\/$/, '');
-  const normalized = path.endsWith('/videos/generations') ? '/video/generations' : path.replace(/^\/v1/, '');
-  return `${prefix}${normalized.startsWith('/') ? normalized : `/${normalized}`}`;
+function upstreamBase(env: Env, provider: Provider) {
+  return provider === 'grok' ? env.GROK_UPSTREAM_BASE || 'https://grok.com' : env.GPT_UPSTREAM_BASE || 'https://chatgpt.com';
 }
 async function boundedFetch(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort('upstream timeout'), timeoutMs);
   try { return await fetch(input, { ...init, signal: ac.signal }); } finally { clearTimeout(t); }
 }
-function cloneHeaders(request: Request, cookie: string, token: string, proxyUrl: string) {
-  const headers = new Headers(request.headers);
-  headers.delete('host');
-  headers.delete('content-length');
-  headers.set('cookie', cookie);
-  if (token) headers.set('authorization', `Bearer ${token}`);
-  if (proxyUrl) headers.set('x-gpt2api-proxy', proxyUrl);
-  headers.set('x-gpt2api-worker', 'cloudflare-native');
-  return headers;
-}
 
-export async function forwardOpenAIRequest(env: Env, request: Request, provider: Provider) {
+export async function callModel(env: Env, provider: Provider, body: any, path: 'chat' | 'images' | 'video') {
   const account = await selectHealthyAccount(env, provider);
   if (!account) throw new Error(`no healthy ${provider} account available`);
   const cookie = await decryptText(account.cookie_encrypted, env.ENCRYPTION_KEY);
   const token = account.access_token_encrypted ? await decryptText(account.access_token_encrypted, env.ENCRYPTION_KEY) : '';
-  const incoming = new URL(request.url);
-  const target = new URL(`${upstreamBase(env, provider, account)}${upstreamPath(env, incoming.pathname)}${incoming.search}`);
-  const started = Date.now();
-  try {
-    const proxyUrl = account.proxy_url || env.GLOBAL_PROXY_URL || '';
-    const res = await boundedFetch(target, { method: request.method, headers: cloneHeaders(request, cookie, token, proxyUrl), body: request.body, redirect: 'manual' }, getNum(env.UPSTREAM_TIMEOUT_MS, 110000));
-    await markAccountResult(env, account.id, res.ok);
-    return { response: res, accountId: account.id, provider, latencyMs: Date.now() - started };
-  } catch (e) {
-    await markAccountResult(env, account.id, false, e instanceof Error ? e.message : String(e));
-    throw e;
-  }
-}
+  const endpoint = new URL(`/cf-native/${path}`, upstreamBase(env, provider));
+  const headers = new Headers({ 'Content-Type': 'application/json', Cookie: cookie, 'User-Agent': 'gpt2api-cf-worker/1.0' });
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (account.proxy_url || env.GLOBAL_PROXY_URL) headers.set('X-GPT2API-Proxy', account.proxy_url || env.GLOBAL_PROXY_URL || '');
 
-export async function healthCheckAccounts(env: Env) {
-  const rows = await env.DB.prepare("select * from accounts where status in ('active','cooldown') limit 50").all<AccountRecord>();
-  await Promise.all(rows.results.map(async (account) => {
-    try {
-      const base = upstreamBase(env, account.provider, account);
-      const res = await boundedFetch(`${base}/`, { method: 'HEAD' }, 8000);
-      await recordAccountHealth(env, account.id, res.status < 500 ? 'healthy' : 'degraded', `status=${res.status}`);
-    } catch (e) {
-      await recordAccountHealth(env, account.id, 'down', e instanceof Error ? e.message : String(e));
-    }
-  }));
+  // Cloudflare Workers 不能直接创建 TCP CONNECT 代理；这里保留账号级/全局代理配置语义，供上游兼容网关识别。
+  // 若 GPT/Grok Web 协议变化导致直连失败，响应会回退为 OpenAI 兼容错误，并触发账号熔断。
+  const res = await boundedFetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body) }, getNum(env.UPSTREAM_TIMEOUT_MS, 110000));
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    await markAccountResult(env, account.id, false, text || res.statusText);
+    throw new Error(`${provider} upstream failed: ${res.status} ${text.slice(0, 300)}`);
+  }
+  await markAccountResult(env, account.id, true);
+  const data = await res.json().catch(() => null);
+  return { data, accountId: account.id, provider };
 }
 
 export async function cacheGeneration(env: Env, kind: 'image' | 'video', payload: unknown, bytes?: ArrayBuffer) {

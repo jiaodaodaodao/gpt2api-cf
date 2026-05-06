@@ -9,7 +9,6 @@ import { openaiRoutes } from './routes/openai';
 import { adminRoutes } from './routes/admin';
 import { userRoutes } from './routes/user';
 import { nowIso } from './services/db';
-import { healthCheckAccounts } from './services/upstream';
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -23,7 +22,6 @@ app.use('/admin/api/*', rateLimit('admin'));
 
 app.get('/health', (c) => c.json({ ok: true, service: c.env.APP_NAME || 'gpt2api-cf', native: true, build_sha: c.env.BUILD_SHA || 'dev' }));
 app.get('/healthz', (c) => c.json({ ok: true }));
-app.route('/api/v1', authRoutes);
 app.route('/api', authRoutes);
 app.route('/', userRoutes);
 app.route('/', adminRoutes);
@@ -41,11 +39,9 @@ app.onError((err, c) => {
 
 async function scheduled(env: Env) {
   const cutoff = new Date(Date.now() - 30 * 24 * 3600_000).toISOString();
-  await healthCheckAccounts(env);
   await env.DB.batch([
     env.DB.prepare('update accounts set status="active", circuit_until=null, updated_at=? where status="cooldown" and circuit_until < ?').bind(nowIso(), nowIso()),
     env.DB.prepare('delete from request_logs where created_at < ?').bind(cutoff),
-    env.DB.prepare('delete from api_call_records where created_at < ?').bind(cutoff),
     env.DB.prepare('delete from billing_records where created_at < ? and kind="debug"').bind(cutoff),
   ]);
   await env.CACHE.put('cron:last_health_check', nowIso(), { expirationTtl: 172800 });

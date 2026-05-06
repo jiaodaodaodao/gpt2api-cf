@@ -14,13 +14,7 @@ create table if not exists api_keys (
   key_hash text not null unique,
   name text not null,
   status text not null default 'active',
-  scopes text not null default 'chat,image,images,video',
-  prefix text,
-  last4 text,
-  rpm_limit integer not null default 0,
-  daily_quota integer not null default 0,
-  expire_at text,
-  last_used_at text,
+  scopes text not null default 'chat,images,video',
   created_at text not null,
   updated_at text not null
 );
@@ -31,7 +25,6 @@ create table if not exists accounts (
   cookie_encrypted text not null,
   access_token_encrypted text,
   proxy_url text,
-  upstream_base_url text,
   weight integer not null default 1,
   status text not null default 'active' check(status in ('active','cooldown','disabled','dead')),
   fail_count integer not null default 0,
@@ -93,24 +86,3 @@ create table if not exists request_logs (
   created_at text not null
 );
 create index if not exists idx_logs_created on request_logs(created_at desc);
-create table if not exists api_call_records (
-  id text primary key,
-  request_id text not null,
-  user_id text not null,
-  api_key_id text not null,
-  method text not null,
-  path text not null,
-  model text,
-  provider text,
-  account_id text,
-  status integer not null,
-  cost integer not null default 0,
-  prompt_tokens integer not null default 0,
-  completion_tokens integer not null default 0,
-  total_tokens integer not null default 0,
-  latency_ms integer not null default 0,
-  error text,
-  created_at text not null
-);
-create index if not exists idx_api_call_records_user_created on api_call_records(user_id,created_at desc);
-create index if not exists idx_api_call_records_key_created on api_call_records(api_key_id,created_at desc);

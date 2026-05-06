@@ -20,7 +20,6 @@ export interface Env {
   GLOBAL_PROXY_URL?: string;
   GPT_UPSTREAM_BASE?: string;
   GROK_UPSTREAM_BASE?: string;
-  UPSTREAM_OPENAI_COMPAT_PATH?: string;
   ENCRYPTION_KEY: string;
 }
 
@@ -38,9 +37,7 @@ export interface AccountRecord {
   fail_count: number;
   circuit_until: string | null;
   last_used_at: string | null;
-  upstream_base_url?: string | null;
 }
-
 export interface ApiKeyRecord {
   id: string;
   user_id: string;
@@ -48,14 +45,7 @@ export interface ApiKeyRecord {
   name: string;
   status: string;
   scopes: string;
-  prefix?: string | null;
-  last4?: string | null;
-  rpm_limit?: number | null;
-  daily_quota?: number | null;
-  expire_at?: string | null;
-  last_used_at?: string | null;
 }
-
 export interface UserRecord {
   id: string;
   email: string;
