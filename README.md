@@ -15,7 +15,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://react.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)](https://docs.docker.com/compose/)
 
-[功能特性](#-功能特性) · [快速部署](#-快速部署) · [API 兼容性](#-openai-兼容-api) · [配置说明](#-配置说明) · [更新日志](#-更新日志) · [Star 趋势](#-star-趋势)
+[功能特性](#-功能特性) · [快速部署](#-快速部署) · [Cloudflare 边缘部署](#-cloudflare-workers-边缘部署) · [API 兼容性](#-openai-兼容-api) · [配置说明](#-配置说明) · [更新日志](#-更新日志) · [Star 趋势](#-star-趋势)
 
 </div>
 
@@ -144,6 +144,26 @@ docker logs -f klein-worker
 | 用户前台 | `http(s)://your-domain:17080` |
 | 管理后台 | `http(s)://your-domain:17088` |
 | OpenAI 兼容 API | `http(s)://your-domain:17200/v1` |
+
+
+## ☁️ Cloudflare Workers 边缘部署
+
+本仓库新增 `cloudflare/` Worker 部署入口，参考 `TQZHR/grok2api` 的 Wrangler + GitHub Actions 一键部署流程，为 gpt2api 提供 Cloudflare 统一入口。
+
+由于 gpt2api 后端依赖 Go / MySQL / Redis / 后台 worker，Cloudflare Workers 版本定位为 **边缘反向代理 / Front Door**：业务源站仍按 Docker Compose 或 K8s 运行，Worker 负责统一域名、TLS/WAF、CORS、健康检查与 `/api/*`、`/admin/api/*`、`/v1/*` 路由转发。
+
+快速使用：
+
+```bash
+cd cloudflare
+cp .env.example .env.local   # 填入 Cloudflare API Token、Account ID 和你的源站域名
+npm install
+npm run typecheck
+npm run dry-run
+npm run deploy
+```
+
+也可以配置 GitHub Secrets 后直接使用 `.github/workflows/cloudflare-workers.yml` 自动部署，详见 [`cloudflare/README.md`](cloudflare/README.md)。请不要把 Cloudflare 账号密码或长期密钥发给任何人；需要协助时只使用可随时删除的最小权限 API Token。
 
 ## 🧩 OpenAI 兼容 API
 

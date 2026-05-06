@@ -1,0 +1,17 @@
+{
+  "name": "gpt2api-cloudflare-edge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run render-config -- --output wrangler.local.toml && wrangler dev --config wrangler.local.toml",
+    "deploy": "npm run render-config -- --output wrangler.local.toml && wrangler deploy --config wrangler.local.toml",
+    "dry-run": "npm run render-config -- --output wrangler.local.toml && wrangler deploy --dry-run --config wrangler.local.toml",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "render-config": "node scripts/render-wrangler-config.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "wrangler": "^4.14.4"
+  }
+}

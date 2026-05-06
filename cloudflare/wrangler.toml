@@ -1,0 +1,24 @@
+name = "gpt2api-edge"
+main = "src/index.ts"
+compatibility_date = "2026-05-06"
+compatibility_flags = ["nodejs_compat"]
+
+# 与 TQZHR/grok2api 的 Workers 部署方式一致，固定在美国区域以提升出站稳定性。
+[placement]
+region = "aws:us-east-1"
+
+[vars]
+# 这些 URL 会被 GitHub Actions 从 Secrets 注入到 wrangler.ci.toml。
+# 本地手动部署时，请先复制/编辑为你的真实源站地址，必须包含 https://。
+USER_WEB_ORIGIN = "https://user.example.com"
+ADMIN_WEB_ORIGIN = "https://admin.example.com"
+USER_API_ORIGIN = "https://user.example.com"
+ADMIN_API_ORIGIN = "https://admin.example.com"
+OPENAI_API_ORIGIN = "https://api.example.com"
+
+# 可选：管理后台独立域名。配置后该 Host 的所有非 API 请求都会转发到 ADMIN_WEB_ORIGIN。
+ADMIN_HOST = "admin.example.com"
+BUILD_SHA = "dev"
+
+# CORS：逗号分隔。"*" 表示允许任意来源；生产建议填写你的前台/后台域名。
+CORS_ALLOW_ORIGINS = "*"

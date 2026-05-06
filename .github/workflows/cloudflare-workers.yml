@@ -1,0 +1,57 @@
+name: Deploy Cloudflare Worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-cloudflare:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: cloudflare/package.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Generate CI Wrangler config
+        run: npm run render-config -- --output wrangler.ci.toml
+        env:
+          CF_USER_WEB_ORIGIN: ${{ secrets.CF_USER_WEB_ORIGIN }}
+          CF_ADMIN_WEB_ORIGIN: ${{ secrets.CF_ADMIN_WEB_ORIGIN }}
+          CF_USER_API_ORIGIN: ${{ secrets.CF_USER_API_ORIGIN }}
+          CF_ADMIN_API_ORIGIN: ${{ secrets.CF_ADMIN_API_ORIGIN }}
+          CF_OPENAI_API_ORIGIN: ${{ secrets.CF_OPENAI_API_ORIGIN }}
+          CF_ADMIN_HOST: ${{ secrets.CF_ADMIN_HOST }}
+          CF_CORS_ALLOW_ORIGINS: ${{ secrets.CF_CORS_ALLOW_ORIGINS }}
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Dry-run Worker deploy
+        run: npx wrangler deploy --dry-run --config wrangler.ci.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Worker
+        run: npx wrangler deploy --config wrangler.ci.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
